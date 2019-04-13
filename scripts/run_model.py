@@ -19,13 +19,16 @@ import argparse, json, os
 from imageio import imwrite
 import torch
 
+import sys, os
+sys.path.append(os.path.abspath(os.path.join('..', 'sg2im')))
+
 from sg2im.model import Sg2ImModel
 from sg2im.data.utils import imagenet_deprocess_batch
 import sg2im.vis as vis
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--checkpoint', default='sg2im-models/vg128.pt')
+parser.add_argument('--checkpoint', default='sg2im-models/vg64.pt')
 parser.add_argument('--scene_graphs_json', default='scene_graphs/figure_6_sheep.json')
 parser.add_argument('--output_dir', default='outputs')
 parser.add_argument('--draw_scene_graphs', type=int, default=0)

@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-VG_DIR=datasets/vg
+VG_DIR=/home/shared/vg
 mkdir -p $VG_DIR
 
 wget https://visualgenome.org/static/data/dataset/objects.json.zip -O $VG_DIR/objects.json.zip

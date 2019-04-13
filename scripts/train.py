@@ -22,6 +22,9 @@ import math
 from collections import defaultdict
 import random
 
+import sys
+sys.path.append(os.path.abspath(os.path.join('..', 'sg2im')))
+
 import numpy as np
 import torch
 import torch.optim as optim
@@ -30,7 +33,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from sg2im.data import imagenet_deprocess_batch
-from sg2im.data.coco import CocoSceneGraphDataset, coco_collate_fn
+#from sg2im.data.coco import CocoSceneGraphDataset, coco_collate_fn
 from sg2im.data.vg import VgSceneGraphDataset, vg_collate_fn
 from sg2im.discriminators import PatchDiscriminator, AcCropDiscriminator
 from sg2im.losses import get_gan_losses
@@ -41,11 +44,11 @@ from sg2im.utils import timeit, bool_flag, LossManager
 
 torch.backends.cudnn.benchmark = True
 
-VG_DIR = os.path.expanduser('datasets/vg')
+VG_DIR = '/home/shared/vg/'
 COCO_DIR = os.path.expanduser('datasets/coco')
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', default='coco', choices=['vg', 'coco'])
+parser.add_argument('--dataset', default='vg', choices=['vg', 'coco'])
 
 # Optimization hyperparameters
 parser.add_argument('--batch_size', default=32, type=int)
