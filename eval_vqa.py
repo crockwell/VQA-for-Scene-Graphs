@@ -14,9 +14,11 @@ from tensorboardX import SummaryWriter
 from sg2im.data.utils import imagenet_deprocess_batch
 from sg2im.model import Sg2ImModel
 from sg2im.data.vg_for_vqa import VgSceneGraphDataset, vg_collate_fn
-import vqa.datasets as datasets
-from vqa.models.att import MutanAtt # vqa model 
+import vqa_pytorch.vqa.datasets as datasets
+from vqa_pytorch.vqa.models.att import MutanAtt # vqa model 
 #import vqa.models as models
+# when i left was running python vqa_pytorch/extract.py --dataset vgenome --dir_data data/vgenome --data_split train
+# on flux.
     
 '''
 parser = argparse.ArgumentParser()
@@ -141,15 +143,23 @@ val_loader = DataLoader(val_dset, **loader_kwargs)
 parser = argparse.ArgumentParser(
     description='Train/Evaluate models',
     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument('--path_opt', default='vqa/vqa_options/mutan_att_trainval.yaml', type=str, 
+parser.add_argument('--path_opt', default='vqa_pytorch/options/vqa/mutan_att_trainval.yaml', type=str, 
     help='path to a yaml options file')
+
+args = parser.parse_args()
+with open(args.path_opt, 'r') as handle:
+    options = yaml.load(handle)
+    #options = utils.update_values(options, options_yaml)
+
+trainset = datasets.factory_VQA('trainval', opt_vgenome=options['vgenome'], opt=options['vqa'], opt_coco=options['coco'])
+LEN_VQA = 334554 # so we can access only visual genome items
 
 # answer questions
 def inference(vqa_model, image, question_set):
     answer_set = []
     for q in question_set:
-        input_visual = Variable(image.cuda(async=True), volatile=True)
-        input_question = Variable(question_set.cuda(async=True), volatile=True)
+        input_visual = torch.autograd.Variable(torch.from_numpy(image), requires_grad=False).cuda()#Variable(image.cuda(async=True), volatile=True)
+        input_question = torch.autograd.Variable(torch.from_numpy(q), requires_grad=False).cuda()#Variable(q.cuda(async=True), volatile=True)
         output = vqa_model(input_visual, input_question)
         print(output)
         _, pred = output.data.cpu().max(1)
@@ -159,7 +169,7 @@ def inference(vqa_model, image, question_set):
         answer_set.append(pred) #output 
     return answer_set
 
-def vg_eval(answers, vqa_gt, vqa_gen_theirs, vqa_gen_mine):
+def vg_eval(answer_tensors, vqa_gt, vqa_gen_theirs, vqa_gen_mine, answers):
     '''
     must match answer exactly. However, only use questions with 2 or 1 word answers (relatively easy). 
     May also try 3 word answers
@@ -168,7 +178,7 @@ def vg_eval(answers, vqa_gt, vqa_gen_theirs, vqa_gen_mine):
     gen_corr_theirs = {'one': 0, 'two': 0, 'three': 0}
     gen_corr_mine = {'one': 0, 'two': 0, 'three': 0}
     count = {'one': 0, 'two': 0, 'three': 0}
-    for answer, answer_gt, ans_gen_theirs, ans_gen_mine in zip(answers, vqa_gt, vqa_gen_theirs, vqa_gen_mine):
+    for answer_tensor, answer_gt, ans_gen_theirs, ans_gen_mine, answer in zip(answer_tensors, vqa_gt, vqa_gen_theirs, vqa_gen_mine, answers):
         word_ct = 'one'
         ct = answer.count(' ')
         if ct == 1:
@@ -178,11 +188,11 @@ def vg_eval(answers, vqa_gt, vqa_gen_theirs, vqa_gen_mine):
         elif ct > 2:
             print('longer than 3 words: ', answer)
             continue
-        if answer == answer_gt:
+        if answer_tensor == answer_gt:
             gt_corr[word_ct] += 1
-        if answer == ans_gen_theirs:
+        if answer_tensor == ans_gen_theirs:
             gen_corr_theirs[word_ct] += 1
-        if answer == ans_gen_mine:
+        if answer_tensor == ans_gen_mine:
             gen_corr_mine[word_ct] += 1
         count[word_ct] += 1
     
@@ -217,7 +227,7 @@ def get_info(num_eval):
     '''
     gets all gt img, question, answer, scene graph
     '''
-    VG_DIR = '/home/shared/vg/'
+    VG_DIR = '/scratch/jiadeng_fluxoe/shared/vg'
     vocab_json = os.path.join(VG_DIR, 'vocab.json')
     with open(vocab_json, 'r') as f:
         vocab = json.load(f)
@@ -232,12 +242,18 @@ def get_info(num_eval):
         'normalize_images': False,
     }
     dset = VgSceneGraphDataset(**dset_kwargs)
-    with open('/home/shared/vg/question_answers.json') as data_file:
+    with open(os.path.join(VG_DIR, 'question_answers.json')) as data_file:
         data = json.load(data_file)
+    
+    with open('qa_from_qid.pickle', 'rb') as handle:
+        qa_from_qid = pickle.load(handle)
+    
     tr = tqdm.tqdm( range(0, num_eval), total = num_eval )
     for i in tr:
         questions = []
         answers = []
+        question_tensors = []
+        answer_tensors = []
         gt_img, objs, __, triples, img_id = dset.__getitem__(i)
         gt_img = gt_img.numpy().transpose(1,2,0) #64,64
         for j in data:
@@ -245,7 +261,14 @@ def get_info(num_eval):
                 for k in j['qas']:
                     questions.append(k['question'])
                     answers.append(k['answer'])
-        yield gt_img, questions, answers, objs, triples
+                    qid = k['qa_id']
+                    print(k['question']) #where are the cpus being stored?
+                    print(k['answer']) #under the desk.
+                    print('img id', img_id, 'i', i, 'qa_id', k['qa_id']) #id is 10, i is 0, qa id is 988197 (others sampled > 900k)
+                    question_tensors.append(qa_from_qid[qid][0])
+                    answer_tensors.append(qa_from_qid[qid][1])
+                    return ya
+        yield gt_img, questions, answers, objs, triples, question_tensors, answer_tensors
     
     '''
     tr = tqdm.tqdm( range(0, num_eval), total = num_eval )
@@ -269,6 +292,7 @@ def main():
     calls fcns to load info, answer questions, evaluate
     '''
     # Load the model, with a bit of care in case there are no GPUs
+    print('loading scene gen model...')
     device = torch.device('cuda:0')
     map_location = 'cpu' if device == torch.device('cpu') else None
     checkpoint_theirs = torch.load('sg2im-models/vg64.pt', map_location=map_location)
@@ -284,7 +308,7 @@ def main():
     my_model.to(device)
     
     # load vqa model
-    args = parser.parse_args()
+    
     '''
     options = {
         'model': {
@@ -297,13 +321,8 @@ def main():
         }
     }
     '''
-    with open(args.path_opt, 'r') as handle:
-        options = yaml.load(handle)
-    #options = utils.update_values(options, options_yaml)
-    #trainset = datasets.factory_VQA('val', opt_vgenome=None, opt=options['vqa'], opt_coco=options['coco'])
-    #test_loader = testset.data_loader(batch_size=1,
-    #                                    num_workers=args.workers,
-    #                                    shuffle=False) 
+    #train_loader = trainset.data_loader(batch_size=1,num_workers=args.workers,shuffle=False) 
+    
     #vqa_model = getattr(sys.modules[__name__], options['arch'])(options, trainset.vocab_words(), trainset.vocab_answers())
     #vocab_words = h5py.File('vqa/data/vocab_words.h5','r')
     #vocab_answers = h5py.File('vqa/data/vocab_answers.h5','r')
@@ -317,6 +336,8 @@ def main():
     #gen_imgs = []
     questions = []
     answers = []
+    question_tensors = []
+    answer_tensors = []
     vqa_gt = []
     vqa_gen_theirs = []
     vqa_gen_mine = []
@@ -324,13 +345,16 @@ def main():
     triples = []
     #img_paths = []
 
-    for gt_img, question_set, answer_set, obj, triple in get_info(num_eval=2):
+    print('getting q, a, images...')
+    for gt_img, question_set, answer_set, obj, triple, question_tensor_set, answer_tensor_set in get_info(num_eval=2):
         gt_imgs.append(gt_img)
         questions.append(question_set)
         answers.append(answer_set)
         objs.append(obj)
         triples.append(triple)
-        
+        question_tensors.append(question_tensor_set)
+        answer_tensors.append(answer_tensor_set)
+    '''    
     vocab_answers = []
     vocab_words = []
     for i in range(len(questions)):
@@ -341,10 +365,13 @@ def main():
                 vocab_words.append(word)
     print(len(vocab_answers), len(vocab_words))        
     vqa_model = MutanAtt(options['model'], vocab_words, vocab_answers)#trainset.vocab_words(), trainset.vocab_answers())
+    '''
+    print('loading vqa model...')
+    vqa_model = MutanAtt(options['model'], trainset.vocab_words(), trainset.vocab_answers())
     #vqa_model = nn.DataParallel(vqa_model).cuda()
     #vqa_model.cuda()
     
-    path_ckpt_model = 'vqa/mutan_att_trainval/ckpt_model.pth.tar'
+    path_ckpt_model = 'vqa_pytorch/vqa/mutan_att_trainval/ckpt_model.pth.tar'
     model_state = torch.load(path_ckpt_model)
     vqa_model.load_state_dict(model_state)
     vqa_model.eval()
@@ -352,27 +379,28 @@ def main():
     for i in range(len(gt_imgs)):
         gt_img = gt_imgs[i]
         question_set = questions[i]
+        question_set_tensors = question_tensors[i]
         obj = objs[i]
         triple = triples[i]
         #img_paths.append(img_path)
         
         # answer, gt
-        vqa_answer_from_gt = inference(vqa_model, gt_img, question_set)
+        vqa_answer_from_gt = inference(vqa_model, gt_img, question_set_tensors)
         vqa_gt.append(vqa_answer_from_gt)
         
         # answer, theirs
         gen_img_theirs = generate_img(obj, triple, their_model)
         #gen_imgs.append(gen_img)
-        vqa_answer_from_gen_theirs = inference(vqa_model, gen_img_theirs, question_set)
+        vqa_answer_from_gen_theirs = inference(vqa_model, gen_img_theirs, question_set_tensors)
         vqa_gen_theirs.append(vqa_answer_from_gen_theirs)
         
         # answer, mine
         gen_img_mine = generate_img(obj, triple, my_model)
         #gen_imgs.append(gen_img)
-        vqa_answer_from_gen_mine = inference(vqa_model, gen_img_mine, question_set)
+        vqa_answer_from_gen_mine = inference(vqa_model, gen_img_mine, question_set_tensors)
         vqa_gen_mine.append(vqa_answer_from_gen_mine)
 
-    vg_eval(answers, vqa_gt, vqa_gen_theirs, vqa_gen_mine)
+    vg_eval(answer_tensors, vqa_gt, vqa_gen_theirs, vqa_gen_mine, answers)
     
 if __name__ == '__main__':
     main()    
