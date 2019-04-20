@@ -27,7 +27,7 @@ trainset = datasets.factory_VQA('trainval', opt_vgenome=options['vgenome'], opt=
 print('load & convert files...')
 tot = 660692
 tenth = 16517
-for file in range(23,40):
+for file in range(10,40):
     print(file,'of 40')
     question_hash = {}
     tr = tqdm.tqdm(range(tenth*file, tenth*(file+1)), total = tenth)
@@ -35,8 +35,8 @@ for file in range(23,40):
         tr = tqdm.tqdm(range(tenth*file, 660692), total = tenth)
     for l in tr:
         item = trainset.__getitem__(l+LEN_VQA)
-        question_hash[item['question_id']] = (item['question'].numpy(), item['answer'])
+        question_hash[item['question_id']] = l#(item['question'].numpy(), item['answer'], l)
 
-    with open('qa_from_qid'+str(file)+'.pickle', 'wb') as f:
+    with open('idx_from_qid'+str(file)+'.pickle', 'wb') as f:
         pickle.dump(question_hash, f)
 
