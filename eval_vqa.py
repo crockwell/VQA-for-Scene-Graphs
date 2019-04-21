@@ -95,8 +95,11 @@ def vg_eval(answer_tensors, vqa_gt, vqa_gen_theirs, vqa_gen_mine, answers, i_s):
     gen_corr_mine = {'one': 0, 'two': 0, 'three': 0, 'four': 0}
     count = {'one': 0, 'two': 0, 'three': 0, 'four': 0}
     img_scores = []
+    imgs_count = 0
     for answer_tensor, answer_gt, ans_gen_theirs, ans_gen_mine, answer, i in zip(answer_tensors, vqa_gt, vqa_gen_theirs, vqa_gen_mine, answers, i_s):
         img_score = [0, 0, 0, i, 0]
+        imgs_count += 1
+        qs_count = 0
         for ans, agt, a, theirs, mine in zip(answer_tensor, answer_gt, answer, ans_gen_theirs, ans_gen_mine):
             word_ct = 'one'
             ct = a.count(' ')
@@ -118,7 +121,11 @@ def vg_eval(answer_tensors, vqa_gt, vqa_gen_theirs, vqa_gen_mine, answers, i_s):
                 img_score[2] += 1 
             count[word_ct] += 1
             img_score[4] += 1
+            qs_count += 1
+            if qs_count > 30:
+                print('over 30! ', qs_count, i)
         img_scores.append(img_score)
+    print('imgs count', imgs_count)
     
     for ct in gt_corr.keys():
         print('accuracy, answers from gt, ', ct, ' word: ', round(gt_corr[ct]/max(count[ct],1),3), 'count', count[ct])
@@ -133,24 +140,34 @@ def vg_eval(answer_tensors, vqa_gt, vqa_gen_theirs, vqa_gen_mine, answers, i_s):
     print('accuracy, answers from generated (mine), total: ', round(my_corr/max(total_ct,1),3), 'count', total_ct)
     
     img_scores = np.array(img_scores)
-    diffs = img_scores[:,2] - img_scores[:,1] # high is good
-    diffs_gt = img_scores[:,2] - img_scores[:,0] # high is good
+    #diffs = img_scores[:,2] - img_scores[:,1] # high is good
+    #diffs_gt = img_scores[:,2] - img_scores[:,0] # high is good
+    my_scores = img_scores[:,2]
+    their_scores = img_scores[:,1]
+    gt_scores = img_scores[:,0]
+       
+    gts_sorted = gt_scores.argsort()[-20:][::-1]
+    print('gt best elements', gts_sorted, ', scores: ', img_scores[gts_sorted,:])
+    their_sorted = their_scores.argsort()[-20:][::-1]
+    print('their best elements', their_sorted, ', scores: ', img_scores[their_sorted,:])
+    my_sorted = my_scores.argsort()[-20:][::-1]
+    print('our best elements', my_sorted, ', scores: ', img_scores[my_sorted,:])   
         
-    print('median difference in score vs. theirs', np.median(diffs), ', vs. gt: ', np.median(diffs_gt))
-    best_vs_them = diffs.argsort()[-5:][::-1]
+    #print('median difference in score vs. theirs', np.median(diffs), ', vs. gt: ', np.median(diffs_gt))
+    '''
+    best_vs_them = diffs.argsort()[-10:][::-1]
     print('our best elements vs. them', best_vs_them, ', scores: ', img_scores[best_vs_them,:])
-    best_vs_gt = diffs_gt.argsort()[-5:][::-1]
+    best_vs_gt = diffs_gt.argsort()[-10:][::-1]
     print('our best elements vs. gt', best_vs_gt, ', scores: ', img_scores[best_vs_gt,:])
-    worst_vs_them = diffs.argsort()[:5]
+    worst_vs_them = diffs.argsort()[:10]
     print('our worst elements vs. them', worst_vs_them, ', scores: ', img_scores[worst_vs_them,:])
-    worst_vs_gt = diffs_gt.argsort()[:5]
+    worst_vs_gt = diffs_gt.argsort()[:10]
     print('our worst elements vs. gt', worst_vs_gt, ', scores: ', img_scores[worst_vs_gt,:])
+    '''
     
 def generate_img(obj, triple, model):
     '''
     takes scene graph, returns generated img
-    TODO: get working with obj & triple
-    obj_to_img will be all 0s like this I think
     '''
     O = objs.size(0)
     obj_to_img = torch.LongTensor(O).fill_(0)
@@ -218,14 +235,11 @@ def get_info(num_eval):
                         l = qa_from_qid[qid]#[0]
                     except:
                         continue
+                    if k['question'] in questions:
+                        continue
                     c += 1
-                    added = True
                     questions.append(k['question'])
                     answers.append(k['answer'])
-                    #print(k['question']) #where are the cpus being stored?
-                    #print(k['answer']) #under the desk.
-                    #print('shape visual',np.shape(k['visual']))
-                    #print('img id', img_id, 'i', i, 'qa_id', k['qa_id'], 'vqa id', l) #id is 10, i is 0, qa id is 988197 (others sampled > 900k)
                     item = trainset.__getitem__(l+LEN_VQA)
                     question_tensors.append(item['question'].numpy())
                     answer_tensors.append(item['answer'])
@@ -241,23 +255,6 @@ def get_info(num_eval):
         if gotten >= num_eval-1:
             print('had to go through ',i,' to get ', gotten)
             break
-    
-    '''
-    tr = tqdm.tqdm( range(0, num_eval), total = num_eval )
-    val_f = h5py.File('/home/shared/vg/qa_challenge_chris.h5', 'r')
-    VG_DIR = '/home/shared/vg/images/VG_100K'
-    imgs = set()
-    for i in num_eval:
-        question = '%s' % (val_f['question'][i].decode('UTF-8')) 
-        answer = '%s' % (val_f['answer'][i].decode('UTF-8')) 
-        img_id = val_f['image_id'][i]
-        img_path = os.path.join(VG_DIR, str(img_id)+'.jpg')
-        with open(img_path, 'rb') as f:
-            with PIL.Image.open(f) as image:
-                WW, HH = image.size
-                gt_img = self.transform(image.convert('RGB'))
-        yield gt_img, question, answer, img_path, scene_graph
-    '''
 
 def main():
     '''
@@ -279,30 +276,7 @@ def main():
     my_model.eval()
     my_model.to(device)
     
-    # load vqa model
-    
-    '''
-    options = {
-        'model': {
-            'arch': 'MutanNoAtt',
-            'seq2vec': {
-                'type': args.st_type,
-                'dropout': args.st_dropout,
-                'fixed_emb': args.st_fixed_emb
-            }
-        }
-    }
-    '''
-    #train_loader = trainset.data_loader(batch_size=1,num_workers=args.workers,shuffle=False) 
-    
-    #vqa_model = getattr(sys.modules[__name__], options['arch'])(options, trainset.vocab_words(), trainset.vocab_answers())
-    #vocab_words = h5py.File('vqa/data/vocab_words.h5','r')
-    #vocab_answers = h5py.File('vqa/data/vocab_answers.h5','r')
-
-    #args.start_epoch, best_acc1, exp_logger = load_checkpoint(model.module, optimizer,
-    #        os.path.join(options['logs']['dir_logs'], args.resume))
-    #test(test_loader, model, exp_logger, start_epoch, print_freq)
-    
+    # load vqa model 
     
     gt_imgs = []
     #gen_imgs = []
@@ -319,10 +293,9 @@ def main():
     their_feat_tensors = []
     my_feat_tensors = []
     i_s = []
-    #img_paths = []
 
     print('getting q, a, images...')
-    for gt_img, question_set, answer_set, obj, triple, question_tensor_set, answer_tensor_set, feature_tensor, their_feats, my_feats, i in get_info(num_eval=1000): #1000
+    for gt_img, question_set, answer_set, obj, triple, question_tensor_set, answer_tensor_set, feature_tensor, their_feats, my_feats, i in get_info(num_eval=500): #1000
         gt_imgs.append(gt_img)
         questions.append(question_set)
         answers.append(answer_set)
@@ -348,8 +321,6 @@ def main():
     '''
     print('loading vqa model...')
     vqa_model = MutanAtt(options['model'], trainset.vocab_words(), trainset.vocab_answers())
-    #vqa_model = nn.DataParallel(vqa_model).cuda()
-    #vqa_model.cuda()
     
     path_ckpt_model = 'vqa_pytorch/vqa/mutan_att_trainval/ckpt_model.pth.tar'
     model_state = torch.load(path_ckpt_model)
@@ -377,19 +348,6 @@ def main():
         
         vqa_mine = inference(vqa_model, my_feats, question_set_tensors)
         vqa_gen_mine.append(vqa_mine)
-        '''
-        # answer, theirs
-        gen_img_theirs = generate_img(obj, triple, their_model)
-        #gen_imgs.append(gen_img)
-        vqa_answer_from_gen_theirs = inference(vqa_model, gen_img_theirs, question_set_tensors)
-        vqa_gen_theirs.append(vqa_answer_from_gen_theirs)
-        
-        # answer, mine
-        gen_img_mine = generate_img(obj, triple, my_model)
-        #gen_imgs.append(gen_img)
-        vqa_answer_from_gen_mine = inference(vqa_model, gen_img_mine, question_set_tensors)
-        vqa_gen_mine.append(vqa_answer_from_gen_mine)
-        '''
 
     vg_eval(answer_tensors, vqa_gt, vqa_gen_theirs, vqa_gen_mine, answers, i_s)
     
