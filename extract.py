@@ -82,15 +82,15 @@ def main():
 
     dir_extract = os.path.join(args.dir_data, 'extract', extract_name)
     path_file = os.path.join(dir_extract, args.data_split + 'set')
-    os.system('mkdir -p ' + dir_extract)
+    #os.system('mkdir -p ' + dir_extract)
 
     extract(data_loader, model, path_file, args.mode)
 
 
 def extract(data_loader, model, path_file, mode):
-    path_hdf5 = path_file + '.hdf5'
-    path_txt = path_file + '.txt'
-    hdf5_file = h5py.File(path_hdf5, 'w')
+    #path_hdf5 = path_file + '.hdf5'
+    #path_txt = path_file + '.txt'
+    #hdf5_file = h5py.File(path_hdf5, 'w')
 
     # estimate output shapes
     output = model(Variable(torch.ones(1, 3, args.size, args.size),
@@ -100,12 +100,12 @@ def extract(data_loader, model, path_file, mode):
     if mode == 'both' or mode == 'att':
         shape_att = (nb_images, output.size(1), output.size(2), output.size(3))
         print('Warning: shape_att={}'.format(shape_att))
-        hdf5_att = hdf5_file.create_dataset('att', shape_att,
+        #hdf5_att = hdf5_file.create_dataset('att', shape_att,
                                             dtype='f')#, compression='gzip')
     if mode == 'both' or mode == 'noatt':
         shape_noatt = (nb_images, output.size(1))
         print('Warning: shape_noatt={}'.format(shape_noatt))
-        hdf5_noatt = hdf5_file.create_dataset('noatt', shape_noatt,
+        #hdf5_noatt = hdf5_file.create_dataset('noatt', shape_noatt,
                                               dtype='f')#, compression='gzip')
 
     model.eval()
@@ -122,6 +122,7 @@ def extract(data_loader, model, path_file, mode):
             input = next(dl)
         except:
             continue
+        print('inp shape',input.size())
         input_var = Variable(input['visual'], volatile=True)
         output_att = model(input_var)
 
@@ -130,11 +131,11 @@ def extract(data_loader, model, path_file, mode):
 
         batch_size = output_att.size(0)
         if mode == 'both' or mode == 'att':
-            hdf5_att[idx:idx+batch_size]   = output_att.data.cpu().numpy()
+            #hdf5_att[idx:idx+batch_size]   = output_att.data.cpu().numpy()
         if mode == 'both' or mode == 'noatt':
             #print(np.shape(output_noatt.data.cpu().numpy()))
             #print('2',np.shape(hdf5_noatt[idx:idx+batch_size]))
-            hdf5_noatt[idx:idx+batch_size] = output_noatt.data.cpu().numpy()
+            #hdf5_noatt[idx:idx+batch_size] = output_noatt.data.cpu().numpy()
         idx += batch_size
 
         torch.cuda.synchronize()
@@ -149,12 +150,12 @@ def extract(data_loader, model, path_file, mode):
                    batch_time=batch_time,
                    data_time=data_time,))
 
-    hdf5_file.close()
+    #hdf5_file.close()
 
     # Saving image names in the same order than extraction
-    with open(path_txt, 'w') as handle:
-        for name in data_loader.dataset.dataset.imgs:
-            handle.write(name + '\n')
+    #with open(path_txt, 'w') as handle:
+    #    for name in data_loader.dataset.dataset.imgs:
+    #        handle.write(name + '\n')
 
     end = time.time() - begin
     print('Finished in {}m and {}s'.format(int(end/60), int(end%60)))
